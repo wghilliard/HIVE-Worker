@@ -5,8 +5,9 @@ import subprocess as sp
 import shutil
 import errno
 import os
-from mongoengine import connect, Document, IntField, StringField, BooleanField
+from mongoengine import connect, Document, IntField, StringField, BooleanField, DateTimeField
 import argparse
+import datetime
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--masterip", help="The IP of the master, if not in local pod", type=str)
@@ -29,6 +30,8 @@ class Batch(Document):
     status = StringField()
     complete = BooleanField(default=False)
     error = StringField()
+    start_time = DateTimeField()
+    end_time = DateTimeField()
 
     def __str__(self):
         return str(self.batch_id)
@@ -59,6 +62,7 @@ def callback(ch, method, properties, body):
     log_file_path = os.path.join(log_path, str(batch_id) + '.log')
     log_file = open(log_file_path, 'w')
     batch_object.log_path = log_file_path
+    batch_object.start_time = datetime.datetime.now()
 
     # if new file, copy new file to MRB_TOP DATA_TOP + new_file
     try:
@@ -129,6 +133,7 @@ def update_error(batch_id, job_id, error):
 def update_complete(batch_id, job_id):
     batch_object = Batch.objects.get(job_id=job_id, batch_id=batch_id)
     batch_object.complete = True
+    batch_object.end_time = datetime.datetime.now()
     batch_object.save()
 
 
@@ -171,23 +176,27 @@ def start():
 
     print('<MASTER_IP> {0}'.format(MASTER_IP))
     # If connection issue, reconnect
-    while True:
-        try:
-            # MongoDB
-            db = connect(host='mongodb://{0}/{1}'.format(MASTER_IP, DB))
 
-            # Pika ==> RabbitMQ
-            connection = pika.BlockingConnection(pika.ConnectionParameters(MASTER_IP))
-            channel = connection.channel()
-            channel.queue_declare(queue='dispatch')
-            channel.basic_qos(prefetch_count=1)
-            worker_id = channel.basic_consume(callback, queue='dispatch')
-            print '<worker_id> {0}'.format(worker_id)
-            print(' [*] Waiting for tasks. To exit press CTRL+C')
-            channel.start_consuming()
+    try:
+        # MongoDB
+        db = connect(host='mongodb://{0}/{1}'.format(MASTER_IP, DB))
 
-        except ConnectionClosed as e:
-            print(e)
+        # Pika ==> RabbitMQ
+        connection = pika.BlockingConnection(pika.ConnectionParameters(MASTER_IP))
+        channel = connection.channel()
+        channel.queue_declare(queue='dispatch')
+        channel.basic_qos(prefetch_count=1)
+        worker_id = channel.basic_consume(callback, queue='dispatch')
+        print '<worker_id> {0}'.format(worker_id)
+        print(' [*] Waiting for tasks. To exit press CTRL+C')
+        channel.start_consuming()
+
+    except ConnectionClosed as e:
+        print(e)
+        start()
+
+    except Exception as e:
+        print(e)
 
 
 if __name__ == '__main__':
