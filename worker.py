@@ -25,6 +25,7 @@ TEST = True
 class Batch(Document):
     batch_id = IntField(required=True)
     job_id = IntField(required=True)
+    events = db.IntField()
     out_path = StringField()
     log_path = StringField()
     status = StringField()
