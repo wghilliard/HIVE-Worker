@@ -25,9 +25,10 @@ TEST = True
 class Batch(Document):
     batch_id = IntField(required=True)
     job_id = IntField(required=True)
-    events = db.IntField()
+    events = IntField()
     out_path = StringField()
     log_path = StringField()
+    err_path = StringField()
     status = StringField()
     complete = BooleanField(default=False)
     error = StringField()
@@ -54,15 +55,18 @@ def callback(ch, method, properties, body):
 
     print("<received_job>\n <job_id>   {0}\n "
           "<batch_id> {1}\n".format(job_id, batch_id))
-    # Create log file
+    # Create log and error file
     if data_dict.get('log_dir'):
         log_path = os.path.join(LOG_TOP, data_dict.get('log_dir'))
     else:
         log_path = os.path.join(LOG_TOP, job_id)
     mkdir_p(log_path)
     log_file_path = os.path.join(log_path, str(batch_id) + '.log')
+    err_file_path = os.path.join(log_path, 'err_' + str(batch_id) + '.log')
     log_file = open(log_file_path, 'w')
+    err_file = open(err_file_path, 'w')
     batch_object.log_path = log_file_path
+    batch_object.err_path = err_file_path
     batch_object.start_time = datetime.datetime.now()
 
     # if new file, copy new file to MRB_TOP DATA_TOP + new_file
@@ -90,7 +94,7 @@ def callback(ch, method, properties, body):
 
     except Exception as e:
         update_error(batch_id, job_id, e)
-        print >> log_file, '<error> {0}'.format(e)
+        print >> err_file, '<error> {0}'.format(e)
         print(e)
         ch.basic_ack(delivery_tag=method.delivery_tag)
         return
@@ -108,15 +112,16 @@ def callback(ch, method, properties, body):
         print >> log_file, '<cmd> {0}'.format(cmd)
         try:
             update_status(batch_id, job_id, cmd)
-            sp.call(cmd, shell=True, stdout=log_file, stderr=log_file)
+            sp.call(cmd, shell=True, stdout=log_file, stderr=err_file)
         except Exception as e:
             print(e)
-            print >> log_file, '<error> {0}'.format(e)
+            print >> err_file, '<error> {0}'.format(e)
             update_error(batch_id, job_id, e)
 
     print "<job end>"
     print >> log_file, "<job end>"
     log_file.close()
+    err_file.close()
     update_complete(batch_id, job_id)
     ch.basic_ack(delivery_tag=method.delivery_tag)
     return
