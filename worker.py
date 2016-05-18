@@ -8,18 +8,19 @@ import os
 from mongoengine import connect, Document, IntField, StringField, BooleanField, DateTimeField
 import argparse
 import datetime
+from utils import aggregate
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--masterip", help="The IP of the master, if not in local pod", type=str)
 args = parser.parse_args()
 
-DATA_TOP = '/Users/wghilliard/data'
-MRB_TOP = '/Users/wghilliard/products/dev'
-LOG_TOP = '/Users/wghilliard/data/logs'
-
+DATA_TOP = '/data'
+MRB_TOP = '/products/dev'
+LOG_TOP = '/data/logs'
+LINK_PATH = '/data/docker_user/out'
 DB = 'lariatsoft'
 
-TEST = True
+TEST = False
 
 
 class Batch(Document):
@@ -117,6 +118,13 @@ def callback(ch, method, properties, body):
             print(e)
             print >> err_file, '<error> {0}'.format(e)
             update_error(batch_id, job_id, e)
+
+    # Change permissions
+    for r, d, f in os.walk(os.getcwd()):
+        os.chmod(r, 0777)
+
+    # Aggregate output
+    aggregate(out_path, LINK_PATH)
 
     print "<job end>"
     print >> log_file, "<job end>"
